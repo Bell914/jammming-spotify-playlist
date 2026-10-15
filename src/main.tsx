@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Spotify } from './spotify';
 import './style.css';
 
 type Track = { id: string; title: string; artist: string; album: string; uri: string };
@@ -19,17 +20,36 @@ function App() {
   const [query, setQuery] = useState('');
   const [playlistName, setPlaylistName] = useState('My Jammming Playlist');
   const [playlist, setPlaylist] = useState<Track[]>([]);
+  const [results, setResults] = useState<Track[]>(library);
   const [message, setMessage] = useState('Search the library to begin.');
-  const results = useMemo(() => library.filter(track => `${track.title} ${track.artist} ${track.album}`.toLowerCase().includes(query.toLowerCase())), [query]);
   const addTrack = (track: Track) => setPlaylist(current => current.some(item => item.id === track.id) ? current : [...current, track]);
   const removeTrack = (id: string) => setPlaylist(current => current.filter(track => track.id !== id));
-  const savePlaylist = () => {
+  const search = async () => {
+    if (!query.trim()) return setMessage('Enter a song, artist, or album to search.');
+    try {
+      if (import.meta.env.VITE_SPOTIFY_CLIENT_ID) {
+        const tracks = await Spotify.search(query);
+        setResults(tracks);
+        setMessage(`${tracks.length} matching Spotify track(s) found.`);
+      } else {
+        const tracks = library.filter(track => `${track.title} ${track.artist} ${track.album}`.toLowerCase().includes(query.toLowerCase()));
+        setResults(tracks);
+        setMessage(`${tracks.length} matching sample track(s) found. Add a Spotify Client ID to use live search.`);
+      }
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Spotify search failed.'); }
+  };
+  const savePlaylist = async () => {
     if (!playlist.length) return setMessage('Add at least one track before saving.');
-    setMessage(`“${playlistName || 'Untitled playlist'}” is ready to save. Connect Spotify credentials to export ${playlist.length} track(s).`);
+    if (!import.meta.env.VITE_SPOTIFY_CLIENT_ID) return setMessage('Add your Spotify Client ID to a local .env file before saving.');
+    try {
+      await Spotify.savePlaylist(playlistName || 'Untitled playlist', playlist.map(track => track.uri));
+      setPlaylist([]);
+      setMessage(`Saved “${playlistName || 'Untitled playlist'}” to Spotify.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Spotify save failed.'); }
   };
   return <main>
     <header><p className="eyebrow">React playlist builder</p><h1>Jammming</h1><p>Find tracks, build a playlist, then export it to Spotify.</p></header>
-    <section className="search" aria-label="Search songs"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by song, artist, or album" /><button type="button" onClick={() => setMessage(`${results.length} matching track(s) found.`)}>Search</button></section>
+    <section className="search" aria-label="Search songs"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by song, artist, or album" /><button type="button" onClick={search}>Search</button></section>
     <p className="status" role="status">{message}</p>
     <section className="columns">
       <section className="panel"><h2>Search Results</h2><ul>{results.map(track => <TrackRow key={track.id} track={track} label="+" action={() => addTrack(track)} />)}</ul></section>
